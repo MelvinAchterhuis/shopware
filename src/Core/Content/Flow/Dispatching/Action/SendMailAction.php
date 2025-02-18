@@ -13,11 +13,13 @@ use Shopware\Core\Content\MailTemplate\Exception\MailEventConfigurationException
 use Shopware\Core\Content\MailTemplate\Exception\SalesChannelNotFoundException;
 use Shopware\Core\Content\MailTemplate\MailTemplateEntity;
 use Shopware\Core\Content\MailTemplate\Subscriber\MailSendSubscriberConfig;
+use Shopware\Core\Defaults;
 use Shopware\Core\Framework\Adapter\Translation\AbstractTranslator;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Exception\InconsistentCriteriaIdsException;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\Framework\Event\EventData\MailRecipientStruct;
 use Shopware\Core\Framework\Event\LanguageAware;
 use Shopware\Core\Framework\Event\MailAware;
@@ -104,6 +106,8 @@ class SendMailAction extends FlowAction implements DelayableAction
         if ($mailTemplate === null) {
             return;
         }
+
+//        $this->setMissingVariables($mailTemplate);
 
         $injectedTranslator = $this->injectTranslator($flow->getContext(), $flow->getData(MailAware::SALES_CHANNEL_ID));
 
@@ -237,7 +241,9 @@ class SendMailAction extends FlowAction implements DelayableAction
     {
         $criteria = new Criteria([$id]);
         $criteria->setTitle('send-mail::load-mail-template');
-        $criteria->addAssociation('media.media');
+        $criteria->addAssociations(['media.media', 'translations']);
+        $criteria->getAssociation('translations')
+            ->addFilter(new EqualsFilter('languageId', Defaults::LANGUAGE_SYSTEM));
         $criteria->setLimit(1);
 
         /** @var ?MailTemplateEntity $mailTemplate */
@@ -331,5 +337,22 @@ class SendMailAction extends FlowAction implements DelayableAction
             . '{% if contactFormData.lastName is defined %}{{ contactFormData.lastName }}{% endif %}'
         );
         $data->set('senderMail', $contactFormData['email']);
+    }
+
+    private function setMissingVariables(MailTemplateEntity $mailTemplate): void
+    {
+        $mailTemplateTranslationEntity = $mailTemplate->getTranslations()?->first();
+        if (!$mailTemplateTranslationEntity) {
+            return;
+        }
+
+        $translations = $mailTemplate->getTranslated();
+        foreach ($translations as $key => $value) {
+            if (!$value && $mailTemplateTranslationEntity->has($key)) {
+                $translations[$key] = $mailTemplateTranslationEntity->get($key);
+            }
+        }
+
+        $mailTemplate->setTranslated($translations);
     }
 }
